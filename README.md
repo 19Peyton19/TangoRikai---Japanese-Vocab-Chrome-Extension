@@ -1,0 +1,1 @@
+# TangoRikai---Japanese-Vocab-Chrome-Extension
