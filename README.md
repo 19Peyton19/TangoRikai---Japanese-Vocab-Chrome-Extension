@@ -6,6 +6,7 @@ With this extension, you can:
  * See homophones and synonyms of any word
  * learn the kanji of any word
  * See sentences for any word
+   
 To use:
  * Highlight any Japanese word
  * press the 検索 button above the word or use the shortcut Ctrl+Shift+S
