@@ -2,7 +2,7 @@
 
 const JISHO    = "https://jisho.org/api/v1/search/words?keyword=";
 const KANJI_API = "https://kanjiapi.dev/v1/kanji/";
-const TATOEBA  = "https://tatoeba.org/api_v0/search?from=jpn&to=eng&limit=4&query=";
+const TATOEBA  = "https://tatoeba.org/api_v0/search?from=jpn&to=eng&limit=20&query=";
 
 const cache = new Map();
 
@@ -315,14 +315,32 @@ async function getWordDetail(word) {
     info: s.info || []
   }));
 
-  // Parse Tatoeba sentences
-  const sentences = (sentenceData?.results || [])
-    .slice(0, 3)
+  // Parse Tatoeba sentences — pick a varied spread by character length
+  // so results are useful for both beginners and advanced learners.
+  const allSentences = (sentenceData?.results || [])
     .map(r => ({
       japanese: r.text,
       english: r.translations?.[0]?.[0]?.text || ""
     }))
     .filter(s => s.japanese && s.english);
+
+  // Bucket by length: short ≤20 chars, medium 21-50, long >50
+  const short  = allSentences.filter(s => s.japanese.length <= 20);
+  const medium = allSentences.filter(s => s.japanese.length > 20 && s.japanese.length <= 50);
+  const long   = allSentences.filter(s => s.japanese.length > 50);
+
+  // Pick up to 2 short, 2 medium, 1 long — fall back across buckets if one is empty
+  const pick = (arr, n) => arr.slice(0, n);
+  const sentences = [
+    ...pick(short, 2),
+    ...pick(medium, 2),
+    ...pick(long, 1),
+    // if we have fewer than 3 total, pad from whatever is available
+    ...( (short.length + medium.length + long.length < 3) ? allSentences.slice(0, 3) : [] )
+  ]
+    // deduplicate and cap at 5
+    .filter((s, i, arr) => arr.findIndex(x => x.japanese === s.japanese) === i)
+    .slice(0, 5);
 
   return {
     word: entry?.japanese?.[0]?.word || word,

@@ -56,6 +56,17 @@
 }
 .nl-close:hover { background: #3a3a3a; border-color: #888; }
 
+/* ── Jisho external link button ── */
+.nl-jisho-link {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; flex-shrink: 0;
+  background: #2a2a2a; border: 1px solid #555; border-radius: 6px;
+  color: #aaaaaa; text-decoration: none;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.nl-jisho-link svg { width: 13px; height: 13px; }
+.nl-jisho-link:hover { background: #3a3a3a; border-color: #888; color: #ffffff; }
+
 .nl-panel-body { overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: #ccc transparent; }
 
 /* ── Resize handle ── */
@@ -269,18 +280,29 @@
   z-index: 2147483647;
   background: #1a1a1a; border: 1px solid #555; border-radius: 10px;
   padding: 10px 16px; display: flex; align-items: center; gap: 10px;
-  font-family: 'Noto Sans JP', sans-serif; font-size: 13px; color: #f0f0f0;
+  font-family: 'Noto Sans JP', sans-serif; font-size: 12.5px; color: #f0f0f0;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  animation: nl-toast-in 0.2s ease;
+  transition: opacity 0.3s ease;
+  animation: nl-toast-in 0.2s ease; max-width: 360px;
 }
 @keyframes nl-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-#nl-bunpro-toast button {
-  background: #6366f1; border: none; border-radius: 6px;
+#nl-bunpro-toast[data-type="login"]    { border-color: #6366f1; }
+#nl-bunpro-toast[data-type="notfound"] { border-color: #f59e0b; }
+#nl-bunpro-toast[data-type="info"]     { border-color: #38bdf8; }
+#nl-bunpro-toast[data-type="error"]    { border-color: #f87171; }
+.nl-toast-icon { width: 16px; height: 16px; flex-shrink: 0; }
+#nl-bunpro-toast[data-type="login"]    .nl-toast-icon { stroke: #818cf8; }
+#nl-bunpro-toast[data-type="notfound"] .nl-toast-icon { stroke: #fbbf24; }
+#nl-bunpro-toast[data-type="info"]     .nl-toast-icon { stroke: #38bdf8; }
+#nl-bunpro-toast[data-type="error"]    .nl-toast-icon { stroke: #f87171; }
+.nl-toast-msg { flex: 1; line-height: 1.4; }
+.nl-toast-action {
+  background: #6366f1; border-radius: 6px;
   color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;
   padding: 4px 10px; font-family: 'Noto Sans JP', sans-serif;
-  white-space: nowrap;
+  white-space: nowrap; text-decoration: none; flex-shrink: 0;
 }
-#nl-bunpro-toast button:hover { background: #4f46e5; }
+.nl-toast-action:hover { background: #4f46e5; }
 
 /* ── States ── */
 .nl-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 16px; color: #1a1a1a; font-size: 13px; text-align: center; }

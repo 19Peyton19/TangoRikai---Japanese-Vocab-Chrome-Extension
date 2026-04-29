@@ -69,6 +69,13 @@
       <div class="nl-panel-header" id="nl-drag-handle">
         <button class="nl-close" title="Close">✕</button>
         <div class="nl-brand">単語理解</div>
+        <a class="nl-jisho-link" id="nl-jisho-link" href="#" target="_blank" title="Open in Jisho">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </a>
       </div>
       <div class="nl-panel-body">
 
@@ -194,7 +201,7 @@
     // ── Drag ────────────────────────────────────────────────────
     const handle = el.querySelector("#nl-drag-handle");
     handle.addEventListener("mousedown", e => {
-      if (e.target.classList.contains("nl-close")) return;
+      if (e.target.classList.contains("nl-close") || e.target.closest("#nl-jisho-link")) return;
       isDragging = true;
       const rect = el.getBoundingClientRect();
       dragOffsetX = e.clientX - rect.left;
@@ -267,7 +274,17 @@
     panel.querySelector("#nl-kanji-detail-view").style.display = name === "kanji-detail" ? "" : "none";
   }
   function pushView(name) { viewStack.push(name); showView(name); }
-  function popView()      { viewStack.pop(); showView(viewStack[viewStack.length - 1] || "results"); }
+  function popView() {
+    viewStack.pop();
+    const current = viewStack[viewStack.length - 1] || "results";
+    showView(current);
+    // Restore Jisho link to the main searched word when going back to results
+    if (current === "results" && panel) {
+      const word = panel.querySelector("#nl-selected-word")?.textContent;
+      const jishoLink = panel.querySelector("#nl-jisho-link");
+      if (jishoLink && word) jishoLink.href = `https://jisho.org/search/${encodeURIComponent(word)}`;
+    }
+  }
 
   // ── Open / Update / Close ───────────────────────────────────────
   function openPanel(text, rect) {
@@ -281,6 +298,8 @@
     panel.querySelector("#nl-sentences-view").style.display = "none";
     panel.querySelector("#nl-word-info").style.display = "";
     panel.querySelector("#nl-selected-word").textContent = text;
+    const jishoLink = panel.querySelector("#nl-jisho-link");
+    if (jishoLink) jishoLink.href = `https://jisho.org/search/${encodeURIComponent(text)}`;
     panel.querySelector("#nl-reading").textContent = "";
     panel.querySelector("#nl-word-meta").innerHTML = "";
     panel.querySelector("#nl-word-type").textContent = "";
@@ -440,6 +459,8 @@
     pushView("word-detail");
     panel.querySelector("#nl-word-detail-body").innerHTML = "";
     panel.querySelector("#nl-word-detail-loading").style.display = "flex";
+    const jishoLink = panel.querySelector("#nl-jisho-link");
+    if (jishoLink) jishoLink.href = `https://jisho.org/search/${encodeURIComponent(word)}`;
     sendMessage({ type: "GET_WORD_DETAIL", word }, r => {
       if (!panel) return;
       panel.querySelector("#nl-word-detail-loading").style.display = "none";
@@ -517,6 +538,8 @@
   function openKanjiDetail(k) {
     pushView("kanji-detail");
     const body = panel.querySelector("#nl-kanji-detail-body");
+    const jishoLink = panel.querySelector("#nl-jisho-link");
+    if (jishoLink) jishoLink.href = `https://jisho.org/search/${encodeURIComponent(k.char)}%23kanji`;
     body.innerHTML = `
       <div class="nl-kanji-hero">
         <div class="nl-kanji-hero-char">${k.char}</div>
@@ -633,30 +656,57 @@
         }, 2500);
       } else {
         const msg = r?.error || "Error";
-        if (msg === "NOT_LOGGED_IN") {
+        btn.classList.add("nl-bunpro-error");
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+        setTimeout(() => {
+          btn.classList.remove("nl-bunpro-error");
           btn.innerHTML = original;
-          showBunproTokenPrompt();
+        }, 2500);
+
+        if (msg === "NOT_LOGGED_IN") {
+          showBunproToast("Please log in to Bunpro first", "login");
+        } else if (msg.includes("not found in Bunpro")) {
+          showBunproToast(`This word isn't in Bunpro's vocabulary list yet`, "notfound");
+        } else if (msg.includes("401") || msg.includes("403") || msg.includes("Unauthorized")) {
+          showBunproToast("Bunpro authentication failed — try logging in again", "login");
+        } else if (msg.includes("Bunpro add failed")) {
+          showBunproToast("Bunpro couldn't add this word — it may already be in your reviews", "info");
         } else {
-          btn.classList.add("nl-bunpro-error");
-          btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-          setTimeout(() => {
-            btn.classList.remove("nl-bunpro-error");
-            btn.innerHTML = original;
-          }, 2500);
+          showBunproToast(`Bunpro error: ${msg}`, "error");
         }
       }
     });
   }
 
   function showBunproTokenPrompt() {
+    showBunproToast("Please log in to Bunpro first", "login");
+  }
+
+  function showBunproToast(message, type) {
+    // Remove any existing toast
+    document.getElementById("nl-bunpro-toast")?.remove();
+
+    const icons = {
+      login:    `<svg class="nl-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+      notfound: `<svg class="nl-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="11" y1="16" x2="11.01" y2="16"/></svg>`,
+      info:     `<svg class="nl-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+      error:    `<svg class="nl-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`
+    };
+
+    const actionHtml = type === "login"
+      ? `<a href="https://bunpro.jp/login" target="_blank" class="nl-toast-action">Log in →</a>`
+      : "";
+
     const toast = document.createElement("div");
     toast.id = "nl-bunpro-toast";
-    toast.innerHTML = `
-      <span>Please <a href="https://bunpro.jp/login" target="_blank" id="nl-bp-login-link">log in to Bunpro</a> first</span>
-    `;
+    toast.dataset.type = type;
+    toast.innerHTML = `${icons[type] || icons.error}<span class="nl-toast-msg">${message}</span>${actionHtml}`;
     document.body.appendChild(toast);
-    toast.querySelector("#nl-bp-login-link").addEventListener("click", () => toast.remove());
-    setTimeout(() => toast.remove(), 5000);
+
+    if (actionHtml) {
+      toast.querySelector(".nl-toast-action").addEventListener("click", () => toast.remove());
+    }
+    setTimeout(() => { toast.style.opacity = "0"; setTimeout(() => toast.remove(), 300); }, 4500);
   }
 
   function sendMessage(msg, cb) {
