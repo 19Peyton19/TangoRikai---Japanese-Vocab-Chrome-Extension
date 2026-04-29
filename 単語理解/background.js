@@ -11,9 +11,36 @@ function isKanji(ch) {
   return (c >= 0x4e00 && c <= 0x9faf) || (c >= 0x3400 && c <= 0x4dbf);
 }
 
+// Fetch with a timeout so Tatoeba/slow APIs never hang the UI indefinitely
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === "AbortError") throw new Error(`Request timed out: ${url}`);
+    throw e;
+  }
+}
+
+// Simple per-host rate limiter: min gap between requests (ms)
+const lastFetchTime = {};
+async function throttledFetch(url, options, timeoutMs) {
+  const host = new URL(url).hostname;
+  const minGap = host.includes("tatoeba") ? 500 : 0; // 500ms gap between Tatoeba calls
+  const now = Date.now();
+  const gap = (lastFetchTime[host] || 0) + minGap - now;
+  if (gap > 0) await new Promise(r => setTimeout(r, gap));
+  lastFetchTime[host] = Date.now();
+  return fetchWithTimeout(url, options, timeoutMs);
+}
+
 async function get(url) {
   if (cache.has(url)) return cache.get(url);
-  const res = await fetch(url);
+  const res = await throttledFetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
   const data = await res.json();
   cache.set(url, data);
@@ -301,7 +328,9 @@ async function getKanjiBreakdown(text) {
 async function getWordDetail(word) {
   const [dictData, sentenceData] = await Promise.all([
     get(JISHO + encodeURIComponent(word)),
-    get(TATOEBA + encodeURIComponent(word)).catch(() => null)
+    throttledFetch(TATOEBA + encodeURIComponent(word), {}, 8000)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null)
   ]);
 
   const entry = dictData?.data?.find(e =>
@@ -358,19 +387,41 @@ async function getWordDetail(word) {
 
 // ── BUNPRO INTEGRATION ────────────────────────────────────────────────────────
 
-// Cache the Next.js buildId — it only changes on Bunpro deploys
+// Cache the Bunpro Next.js buildId.
+// Stored in chrome.storage.session so it survives service worker restarts
+// (session storage persists until the browser closes, unlike in-memory vars).
 let cachedBuildId = null;
 
 async function getBunproBuildId() {
+  // 1. In-memory (fastest — same SW lifetime)
   if (cachedBuildId) return cachedBuildId;
-  const resp = await fetch("https://bunpro.jp/", { credentials: "include" });
+
+  // 2. Session storage (survives SW sleep/wake within same browser session)
+  try {
+    const stored = await chrome.storage.session.get("bunproBuildId");
+    if (stored?.bunproBuildId) {
+      cachedBuildId = stored.bunproBuildId;
+      return cachedBuildId;
+    }
+  } catch (_) { /* storage.session not available in older Chrome — fall through */ }
+
+  // 3. Fetch fresh from Bunpro homepage
+  const resp = await fetchWithTimeout("https://bunpro.jp/", { credentials: "include" }, 10000);
   const html = await resp.text();
-  // __NEXT_DATA__ is always a <script id="__NEXT_DATA__"> tag with JSON
   const match = html.match(/<script id="__NEXT_DATA__"[^>]*>({.*?})<\/script>/s);
   if (!match) throw new Error("Could not find __NEXT_DATA__ on bunpro.jp");
   const nextData = JSON.parse(match[1]);
   cachedBuildId = nextData.buildId;
+
+  try { await chrome.storage.session.set({ bunproBuildId: cachedBuildId }); } catch (_) {}
+
   return cachedBuildId;
+}
+
+// Bust both caches when a buildId turns out to be stale
+async function bustBuildIdCache() {
+  cachedBuildId = null;
+  try { await chrome.storage.session.remove("bunproBuildId"); } catch (_) {}
 }
 
 // Read the frontend_api_token cookie Bunpro sets on login
@@ -399,7 +450,7 @@ async function addWordToBunpro(word) {
   }
   if (!vocabResp.ok) {
     // buildId may have gone stale after a Bunpro deploy — bust the cache and retry once
-    cachedBuildId = null;
+    await bustBuildIdCache();
     const freshBuildId = await getBunproBuildId();
     const retryUrl = `https://bunpro.jp/_next/data/${freshBuildId}/ja/vocabs/${encodeURIComponent(word)}.json?slug=${encodeURIComponent(word)}`;
     const retryResp = await fetch(retryUrl, { credentials: "include" });

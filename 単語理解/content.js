@@ -1,7 +1,7 @@
 // content.js — 単語理解 v3.2
 (function () {
-  if (window.__nihongoLensLoaded) return;
-  window.__nihongoLensLoaded = true;
+  if (window.__tankogokaiLoaded) return;
+  window.__tankogokaiLoaded = true;
 
   const JAPANESE_REGEX = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\u3400-\u4dbf]/;
 
@@ -100,13 +100,16 @@
                       <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
                     </svg>
                   </button>
-                  <button class="nl-bunpro-btn" id="nl-bunpro-btn" title="Add to Bunpro reviews">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <circle cx="12" cy="12" r="10"/>
-                      <line x1="12" y1="8" x2="12" y2="16"/>
-                      <line x1="8" y1="12" x2="16" y2="12"/>
-                    </svg>
-                  </button>
+                  <div class="nl-bunpro-wrap">
+                    <button class="nl-bunpro-btn" id="nl-bunpro-btn" title="Add to Bunpro reviews">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="16"/>
+                        <line x1="8" y1="12" x2="16" y2="12"/>
+                      </svg>
+                    </button>
+                    <div class="nl-bunpro-tooltip">Add to Bunpro<br><span>Must be logged in at bunpro.jp</span></div>
+                  </div>
                 </div>
                 <div class="nl-word-meta" id="nl-word-meta"></div>
                 <div class="nl-conjugation" id="nl-conjugation" style="display:none"></div>
@@ -502,13 +505,16 @@
               <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
             </svg>
           </button>
-          <button class="nl-bunpro-btn nl-bunpro-detail" title="Add to Bunpro reviews">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="16"/>
-              <line x1="8" y1="12" x2="16" y2="12"/>
-            </svg>
-          </button>
+          <div class="nl-bunpro-wrap">
+            <button class="nl-bunpro-btn nl-bunpro-detail" title="Add to Bunpro reviews">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="16"/>
+                <line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+            </button>
+            <div class="nl-bunpro-tooltip">Add to Bunpro<br><span>Must be logged in at bunpro.jp</span></div>
+          </div>
         </div>
         <div class="nl-detail-reading">${data.reading}</div>
         <div class="nl-detail-badges">${commonBadge}${jlptBadge}</div>
@@ -709,9 +715,37 @@
     setTimeout(() => { toast.style.opacity = "0"; setTimeout(() => toast.remove(), 300); }, 4500);
   }
 
-  function sendMessage(msg, cb) {
-    try { chrome.runtime.sendMessage(msg, cb); }
-    catch (e) { cb({ success: false, error: e.message }); }
+  // sendMessage with automatic service-worker wake-up retry.
+  // MV3 service workers go inactive after ~30s of idle. When that happens,
+  // sendMessage throws "Could not establish connection" or fires cb with
+  // lastError set. We retry once after a short delay to give the SW time
+  // to restart.
+  function sendMessage(msg, cb, _retried) {
+    try {
+      chrome.runtime.sendMessage(msg, response => {
+        if (chrome.runtime.lastError) {
+          const err = chrome.runtime.lastError.message || "";
+          const isDeadWorker =
+            err.includes("Could not establish connection") ||
+            err.includes("The message port closed") ||
+            err.includes("Extension context invalidated");
+          if (isDeadWorker && !_retried) {
+            // Wait 150ms for the service worker to spin back up, then retry once
+            setTimeout(() => sendMessage(msg, cb, true), 150);
+          } else {
+            cb({ success: false, error: err });
+          }
+          return;
+        }
+        cb(response);
+      });
+    } catch (e) {
+      if (!_retried) {
+        setTimeout(() => sendMessage(msg, cb, true), 150);
+      } else {
+        cb({ success: false, error: e.message });
+      }
+    }
   }
 
   // ── Runtime message listener (for keyboard shortcut) ───────────
